@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ASCII Sprite Animation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+</head>
+<body>
+  <div id="inspector">
+    <div class="control-group">
+      <label>Speed (px/frame): <input type="number" id="speedInput" value="10" /></label>
+      <label>FPS: <input type="number" id="fpsInput" value="60" /></label>
+    </div>
+    <div class="control-group">
+      <label>Fetch URL: <input type="text" id="urlInput" placeholder="https://example.com" /></label>
+      <button id="fetchBtn">Fetch</button>
+    </div>
+    <div class="control-group">
+      <label style="display: flex; flex-direction: column;">
+        Background Text:
+        <textarea id="bgTextInput" rows="5" placeholder="Enter background text..."></textarea>
+      </label>
+    </div>
+  </div>
+  <div id="app"></div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
