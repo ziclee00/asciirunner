@@ -2,7 +2,8 @@ import { defineConfig } from 'vite'
 import path from 'path'
 
 export default defineConfig({
-  base: '/asciirunner/',
+  // Use root '/' for Vercel, and '/asciirunner/' for GitHub Pages
+  base: process.env.VERCEL ? '/' : '/asciirunner/',
   server: {
     port: 5173,
     fs: {
