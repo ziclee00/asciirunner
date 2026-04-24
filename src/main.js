@@ -1,278 +1,303 @@
 import './style.css'
-import { prepare, layout } from '@chenglou/pretext'
+import { prepare, layout, prepareWithSegments, layoutNextLine } from '@chenglou/pretext'
 import { frames } from './frames.js'
 
 // ── Configuration ──
 const TOTAL_FRAMES = frames.length
+const FPS = 30
 const TEXT_COLOR = '#00ff40'
 const GLOW_COLOR = 'rgba(0, 255, 64, 0.15)'
 const BG_TEXT_COLOR = '#ffffff'
+const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
 
-// Default background text (long single line, repeated)
-const BG_TEXT_LINE = `The web renders text through a pipeline that was designed thirty years ago for static documents. A browser loads a font, shapes the text into glyphs, measures their combined width, determines where lines break, and positions each line vertically. Every step depends on the previous one. The web renders text through a pipeline that was designed thirty years ago for static documents. A browser loads a font, shapes the text into glyphs, measures their combined width, determines where lines break, and positions each line vertically. Every step depends on the previous one. The web renders text through a pipeline that was designed thirty years ago for static documents. A browser loads a font, shapes the text into glyphs, measures their combined width, determines where lines break, and positions each line vertically. Every step depends on the previous one. The web renders text through a pipeline that was designed thirty years ago for static documents. A browser loads a font, shapes the text into glyphs, measures their combined width, determines where lines break, and positions each line vertically. Every step depends on the previous one. This interactive ASCII player demonstrates dynamic text wrapping using the pretext library. The text layout engine computes the available space around the moving character in real-time, completely bypassing the browser's DOM layout engine. As you move the character left and right, the text seamlessly reflows around it at 60 frames per second. It treats the exact non-space regions of the ASCII sprite as collision obstacles. The web renders text through a pipeline that was designed thirty years ago for static documents. A browser loads a font, shapes the text into glyphs, measures their combined width, determines where lines break, and positions each line vertically. Every step depends on the previous one.`
-
-// ── Inspector DOM ──
-const fpsInput    = document.getElementById('fpsInput')
-const scrollInput = document.getElementById('scrollInput')
-const charSizeInput = document.getElementById('charSizeInput')
-const bgSizeInput   = document.getElementById('bgSizeInput')
-
-// ── Canvas Setup ──
-const app = document.getElementById('app')
-const canvas = document.createElement('canvas')
-app.appendChild(canvas)
-const ctx = canvas.getContext('2d')
+// ── Parallax Layers (based on Figma metadata) ──
+const LAYERS_CONFIG = [
+  { y: 456, fontSize: 15, speed: 1.0 },
+  { y: 476, fontSize: 15, speed: 1.2 },
+  { y: 496, fontSize: 15, speed: 1.4 },
+  { y: 516, fontSize: 15, speed: 1.6 },
+  { y: 536, fontSize: 15, speed: 1.8 },
+  { y: 556, fontSize: 15, speed: 2.0 },
+  { y: 578, fontSize: 20, speed: 2.5 },
+  { y: 605, fontSize: 30, speed: 3.5 },
+  { y: 642, fontSize: 40, speed: 4.5 },
+  { y: 689, fontSize: 50, speed: 6.0 },
+  { y: 746, fontSize: 60, speed: 8.0 },
+]
 
 // ── State ──
 let currentFrame = 0
 let lastFrameTime = 0
+let canvas, ctx
 let isWalking = false
-let direction = 1  // 1 = right, -1 = left
+let direction = 1
+let newsText = "연합뉴스 속보를 불러오는 중입니다..."
+let newsChars = [] // Array of { char: string, width: number } for each layer
+let layersState = [] // { scrollX: number }
 
-// Layout state
+// Character layout state
 let charWidth = 0
-let lineHeight = 0
+let lineHeight = 14
 let measuredFrames = []
 let globalMaxWidth = 0
 let globalMaxHeight = 0
 let scale = 1
-
-// Background scroll state — textOffsetX: how many px the text has scrolled
-// positive = text moved right (character walked left)
-// negative = text moved left (character walked right)
-let textOffsetX = 0
-
-// Fixed character screen position (center-left, vertically centered)
-// will be set in computeSize
 let charScreenX = 0
 let charScreenY = 0
 
-// ── Font helpers ──
-function getFontSize() {
-  return parseFloat(charSizeInput.value) || 14
-}
-function getBgFontSize() {
-  return parseFloat(bgSizeInput.value) || 20
-}
-function getCharFont() {
-  return `${getFontSize()}px "Geist Mono", monospace`
-}
-function getBgFont() {
-  return `${getBgFontSize()}px "Geist Mono", monospace`
-}
-
-// ── Font Loading ──
-async function loadFont() {
+// ── News Fetching ──
+async function fetchNews() {
   try {
-    const font = new FontFace(
-      'Geist Mono',
-      "url('https://cdn.jsdelivr.net/fontsource/fonts/geist-mono@latest/latin-400-normal.woff2')"
-    )
-    const loaded = await font.load()
-    document.fonts.add(loaded)
-  } catch (e) {
-    console.warn('Geist Mono load failed, using monospace fallback:', e)
+    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(NEWS_RSS_URL)}`
+    const res = await fetch(proxyUrl)
+    const data = await res.json()
+    const parser = new DOMParser()
+    const xml = parser.parseFromString(data.contents, 'text/xml')
+    const items = xml.querySelectorAll('item')
+    
+    let combinedText = ""
+    items.forEach(item => {
+      const title = item.querySelector('title')?.textContent || ""
+      const description = item.querySelector('description')?.textContent || ""
+      combinedText += `[속보] ${title} : ${description} `.replace(/<[^>]*>?/gm, '')
+    })
+    
+    newsText = combinedText.replace(/\s+/g, ' ').trim()
+    if (!newsText) newsText = "뉴스를 가져오지 못했습니다. 잠시 후 다시 시도해주세요."
+    
+    preMeasureNews()
+  } catch (err) {
+    console.error('News fetch error:', err)
+    newsText = "연합뉴스 데이터를 불러오는 데 실패했습니다."
+    preMeasureNews()
   }
 }
 
-// ── Frame measurement ──
+function preMeasureNews() {
+  newsChars = LAYERS_CONFIG.map(config => {
+    ctx.font = `${config.fontSize}px "Geist Mono", monospace`
+    return newsText.split('').map(c => ({
+      char: c,
+      width: ctx.measureText(c).width
+    }))
+  })
+}
+
+// ── Collision / Slot Calculation ──
+function getObstaclesForBand(bandTop, bandBottom, frameLines) {
+  const spriteH = globalMaxHeight * scale
+  const obY = charScreenY - spriteH / 2
+  
+  if (bandBottom <= obY || bandTop >= obY + spriteH) return []
+  
+  const localYTop = (bandTop - obY) / scale
+  const localYBottom = (bandBottom - obY) / scale
+  
+  const rowStart = Math.max(0, Math.floor(localYTop / lineHeight))
+  const rowEnd = Math.min(frameLines.length - 1, Math.floor(localYBottom / lineHeight))
+  
+  const blocked = []
+  for (let r = rowStart; r <= rowEnd; r++) {
+    const lineStr = frameLines[r]
+    if (!lineStr) continue
+    
+    let inWord = false
+    let startIdx = 0
+    for (let i = 0; i <= lineStr.length; i++) {
+      const isSpace = i === lineStr.length || lineStr[i] === ' '
+      if (!isSpace && !inWord) {
+        inWord = true
+        startIdx = i
+      } else if (isSpace && inWord) {
+        inWord = false
+        const localStartX = startIdx * charWidth - globalMaxWidth / 2
+        const localEndX = i * charWidth - globalMaxWidth / 2
+        
+        let worldStartX, worldEndX
+        if (direction === 1) {
+          worldStartX = charScreenX + localStartX * scale
+          worldEndX = charScreenX + localEndX * scale
+        } else {
+          worldStartX = charScreenX - localEndX * scale
+          worldEndX = charScreenX - localStartX * scale
+        }
+        blocked.push({ left: worldStartX - 2, right: worldEndX + 2 })
+      }
+    }
+  }
+  return blocked
+}
+
+// ── Font Loading & Sizing ──
+async function loadFont() {
+  const font = new FontFace('Geist Mono', "url('https://cdn.jsdelivr.net/fontsource/fonts/geist-mono@latest/latin-400-normal.woff2')")
+  await font.load().then(loaded => document.fonts.add(loaded)).catch(e => console.warn(e))
+}
+
 function measureAllFrames() {
-  const font = getCharFont()
+  const font = `14px "Geist Mono", monospace`
   measuredFrames = frames.map(lines => {
     const text = lines.join('\n')
     const measured = prepare(text, font)
-    const laid = layout(measured, Infinity, lineHeight)
+    const laid = layout(measured, Infinity, 14)
     return { lines, text, width: laid.width, height: laid.height }
   })
 }
 
-// ── Sizing ──
 function computeSize() {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  const fontSize = getFontSize()
-  const font = getCharFont()
-
-  ctx.font = font
+  
+  ctx.font = `14px "Geist Mono", monospace`
   charWidth = ctx.measureText('M').width
-  lineHeight = fontSize
-
+  
   const cols = frames[0][0].length
   const rows = frames[0].length
-  globalMaxWidth  = charWidth * cols
-  globalMaxHeight = lineHeight * rows
-
-  // Scale to ~1/4 of screen height
-  scale = (vh * 0.25) / globalMaxHeight
-
-  // Character position: left-ish, vertically centered a bit above the text line
+  globalMaxWidth = charWidth * cols
+  globalMaxHeight = 14 * rows
+  
+  scale = (vh * 0.35) / globalMaxHeight
   charScreenX = vw * 0.25
-  charScreenY = vh * 0.5
-
+  charScreenY = vh * 0.4 
+  
   const dpr = window.devicePixelRatio || 1
-  canvas.width  = vw * dpr
+  canvas.width = vw * dpr
   canvas.height = vh * dpr
-  canvas.style.width  = `${vw}px`
+  canvas.style.width = `${vw}px`
   canvas.style.height = `${vh}px`
-}
-
-// ── Measure single-line background text width ──
-// Returns the pixel width of the full BG_TEXT_LINE at current font
-let cachedBgTextWidth = 0
-function measureBgTextWidth() {
-  ctx.font = getBgFont()
-  cachedBgTextWidth = ctx.measureText(BG_TEXT_LINE).width
-}
-
-// ── Get Y position of the text line (just below character feet) ──
-function getTextLineY() {
-  const spriteH = globalMaxHeight * scale
-  // bottom of character
-  const charBottom = charScreenY + spriteH / 2
-  const bgFontSize = getBgFontSize()
-  // Put text at character's feet, aligned to baseline
-  return charBottom
 }
 
 // ── Render ──
 function renderFrame(idx) {
   const mf = measuredFrames[idx]
   if (!mf) return
-
+  
   const dpr = window.devicePixelRatio || 1
-  const vw  = window.innerWidth
-  const vh  = window.innerHeight
-
+  const vw = window.innerWidth
+  const currentFrameLines = frames[idx]
+  
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-
-  // ── Render scrolling background text ──
-  const textY   = getTextLineY()
-  const bgFont  = getBgFont()
-  const bgFontSize = getBgFontSize()
-
+  
+  // ── Render Parallax Layers ──
   ctx.save()
   ctx.scale(dpr, dpr)
-  ctx.font = bgFont
   ctx.textBaseline = 'top'
   ctx.fillStyle = BG_TEXT_COLOR
-
-  // We render the long text line starting at textOffsetX.
-  // To make it seamless/infinite we tile it.
-  const tw = cachedBgTextWidth
-  if (tw > 0) {
-    // Find the first tile start that's ≤ 0 on screen
-    let startX = (textOffsetX % tw) - tw
-    while (startX < vw) {
-      ctx.fillText(BG_TEXT_LINE, startX, textY)
-      startX += tw
+  
+  LAYERS_CONFIG.forEach((config, i) => {
+    const chars = newsChars[i]
+    if (!chars) return
+    
+    ctx.font = `${config.fontSize}px "Geist Mono", monospace`
+    const obstacles = getObstaclesForBand(config.y, config.y + config.fontSize, currentFrameLines)
+    
+    // Virtual scroll offset
+    let scrollX = layersState[i].scrollX
+    
+    // Starting X (tiled)
+    let totalTextWidth = chars.reduce((sum, c) => sum + c.width, 0)
+    if (totalTextWidth === 0) return
+    
+    // We want to render enough tiles to fill the screen
+    // We start rendering from scrollX (could be negative)
+    let drawX = (scrollX % totalTextWidth) - totalTextWidth
+    
+    while (drawX < vw) {
+      for (let cInfo of chars) {
+        // Collision check: if the character would be drawn inside an obstacle, skip/push it
+        let isBlocked = false
+        for (let b of obstacles) {
+          if (drawX + cInfo.width > b.left && drawX < b.right) {
+            drawX = b.right
+            isBlocked = true
+            break
+          }
+        }
+        
+        if (drawX >= vw) break
+        
+        ctx.fillText(cInfo.char, drawX, config.y)
+        drawX += cInfo.width
+      }
     }
-  } else {
-    ctx.fillText(BG_TEXT_LINE, textOffsetX, textY)
-  }
-
+  })
+  
   ctx.restore()
-
-  // ── Render character (fixed position) ──
+  
+  // ── Render Character ──
   ctx.save()
   ctx.scale(dpr, dpr)
-
   ctx.translate(charScreenX, charScreenY)
   ctx.scale(direction * scale, scale)
   ctx.translate(-globalMaxWidth / 2, -globalMaxHeight / 2)
-
-  ctx.font = getCharFont()
+  ctx.font = `14px "Geist Mono", monospace`
   ctx.textBaseline = 'top'
   ctx.shadowColor = GLOW_COLOR
-  ctx.shadowBlur  = 4
-  ctx.fillStyle   = TEXT_COLOR
-
-  for (let row = 0; row < mf.lines.length; row++) {
-    ctx.fillText(mf.lines[row], 0, row * lineHeight)
-  }
-
+  ctx.shadowBlur = 4
+  ctx.fillStyle = TEXT_COLOR
+  mf.lines.forEach((line, r) => ctx.fillText(line, 0, r * 14))
   ctx.restore()
 }
 
-// ── Trigger a walk cycle ──
-function startWalk(dir) {
-  if (isWalking) return
-  direction    = dir
-  currentFrame = 0
-  isWalking    = true
+// ── Animation Loop ──
+function animate(timestamp) {
+  const interval = 1000 / FPS
+  if (timestamp - lastFrameTime >= interval) {
+    lastFrameTime = timestamp - ((timestamp - lastFrameTime) % interval)
+    
+    if (isWalking) {
+      LAYERS_CONFIG.forEach((config, i) => {
+        layersState[i].scrollX -= direction * config.speed
+      })
+      currentFrame++
+      if (currentFrame >= TOTAL_FRAMES) {
+        isWalking = false
+        currentFrame = 0
+      }
+    }
+    renderFrame(currentFrame)
+  }
+  requestAnimationFrame(animate)
 }
 
 // ── Input ──
-window.addEventListener('keydown', (e) => {
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return
+function startWalk(dir) {
+  if (isWalking) return
+  direction = dir
+  isWalking = true
+  currentFrame = 0
+}
+
+window.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') startWalk(1)
   else if (e.key === 'ArrowLeft') startWalk(-1)
 })
 
-window.addEventListener('pointerdown', (e) => {
-  if (e.target.closest('#inspector')) return
+window.addEventListener('pointerdown', e => {
   if (e.clientX >= window.innerWidth / 2) startWalk(1)
   else startWalk(-1)
 })
 
-// Inspector font-size changes require re-measure
-charSizeInput.addEventListener('change', () => {
-  lineHeight = getFontSize()
-  measureAllFrames()
-  measureBgTextWidth()
-  computeSize()
-  renderFrame(currentFrame)
-})
-bgSizeInput.addEventListener('change', () => {
-  measureBgTextWidth()
-  renderFrame(currentFrame)
-})
-
-// ── Animation Loop ──
-function animate(timestamp) {
-  const fps = parseFloat(fpsInput.value) || 60
-  const interval = 1000 / fps
-
-  if (timestamp - lastFrameTime >= interval) {
-    lastFrameTime = timestamp - ((timestamp - lastFrameTime) % interval)
-
-    if (isWalking) {
-      // Scroll the background text in the opposite direction of travel
-      const scrollPx = parseFloat(scrollInput.value) || 5
-      textOffsetX -= direction * scrollPx  // right walk → text moves left
-
-      currentFrame++
-      if (currentFrame >= TOTAL_FRAMES) {
-        isWalking    = false
-        currentFrame = 0
-      }
-    }
-
-    renderFrame(currentFrame)
-  }
-
-  requestAnimationFrame(animate)
-}
-
-// ── Resize ──
 window.addEventListener('resize', () => {
-  measureBgTextWidth()
   computeSize()
+  preMeasureNews()
   renderFrame(currentFrame)
 })
 
 // ── Init ──
 async function init() {
-  canvas.width  = window.innerWidth
-  canvas.height = window.innerHeight
-
+  canvas = document.createElement('canvas')
+  document.getElementById('app').innerHTML = ""
+  document.getElementById('app').appendChild(canvas)
+  ctx = canvas.getContext('2d')
+  
   await loadFont()
-
-  lineHeight = getFontSize()
   measureAllFrames()
-  measureBgTextWidth()
   computeSize()
-
-  lastFrameTime = performance.now()
+  
+  LAYERS_CONFIG.forEach(() => layersState.push({ scrollX: 0 }))
+  
+  await fetchNews()
   requestAnimationFrame(animate)
 }
 
