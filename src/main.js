@@ -2,27 +2,24 @@ import './style.css'
 import { frames } from './frames.js'
 
 // ── Configuration ──
-const TOTAL_FRAMES  = frames.length
-const TEXT_COLOR    = '#00ff40'
-const GLOW_COLOR    = 'rgba(0, 255, 64, 0.55)'
-const FPS           = 30
+const TOTAL_FRAMES   = frames.length
+const TEXT_COLOR     = '#00ff40'
+const GLOW_COLOR     = 'rgba(0, 255, 64, 0.55)'
+const FPS            = 30
 const CHAR_FONT_SIZE = 14
-const CHAR_LINE_H   = CHAR_FONT_SIZE
+const CHAR_LINE_H    = CHAR_FONT_SIZE
 
-// Character: x at left-ish, feet sit exactly on the text horizon
-const CHAR_X_FRAC       = 0.10   // screen-width fraction
-const TEXT_HORIZON_FRAC = 0.46   // Y fraction where text "ground" starts
-const CHAR_HEIGHT_FRAC  = 0.22   // character height as fraction of screen height
+const CHAR_X_FRAC       = 0.10
+const TEXT_HORIZON_FRAC = 0.46
+const CHAR_HEIGHT_FRAC  = 0.22
 
-// Perspective text
-const FONT_MIN   = 9    // px at horizon (far)
-const FONT_MAX   = 72   // px at bottom  (near)
+const FONT_MIN   = 9
+const FONT_MAX   = 72
 const LINE_MULT  = 1.25
 
-// Parallax (applied per row when walking)
-const PARALLAX_MIN   = 0.06   // top-row multiplier (slow / far)
-const PARALLAX_MAX   = 1.80   // bottom-row multiplier (fast / near)
-const SCROLL_PER_FRAME = 8    // base pixels scrolled per animation frame
+const PARALLAX_MIN     = 0.06
+const PARALLAX_MAX     = 1.80
+const SCROLL_PER_FRAME = 8
 
 // ── Canvas ──
 const app    = document.getElementById('app')
@@ -30,33 +27,33 @@ const canvas = document.createElement('canvas')
 app.appendChild(canvas)
 const ctx = canvas.getContext('2d')
 
-// ── Sprite state ──
-let currentFrame = 0
+// ── State ──
+let currentFrame  = 0
 let lastFrameTime = 0
-let isWalking    = false
-let direction    = 1          // 1 = right, -1 = left
+let isWalking     = false
+let direction     = 1
 
 let spriteCharW   = 0
 let globalSpriteW = 0
 let globalSpriteH = 0
 let scale         = 1
 let charScreenX   = 0
-let charScreenY   = 0  // vertical center of sprite
+let charScreenY   = 0   // top of sprite in CSS-px
 let vw = 0, vh = 0
 
-// ── Background text state ──
-let bgText     = ''
-let textScrollX = 0  // cumulative horizontal scroll (px at full parallax = 1.0)
-
-const DEFAULT_BG_TEXT =
-  '연합뉴스 속보. 최신 뉴스를 불러오는 중입니다. ' +
-  'The web renders text through a pipeline designed thirty years ago for static documents. ' +
-  'A browser loads a font shapes the text into glyphs measures their combined width ' +
-  'determines where lines break and positions each line vertically. ' +
-  'Every step depends on the previous one. '
-
-// ── Frame data ──
+let newsItems    = []
+let textScrollX  = 0
 let measuredFrames = []
+
+const DEFAULT_NEWS = [
+  '뉴스를 불러오는 중입니다 — 잠시 후 최신 속보가 표시됩니다.',
+  'Fetching live news — latest breaking headlines will appear shortly.',
+  'The web renders text through a pipeline designed thirty years ago for static documents.',
+  'A browser loads a font, shapes text into glyphs, measures widths, determines line breaks.',
+  'Pretext exploits canvas measureText to compute layout without any DOM reflows.',
+  'Real-time text reflow around animated obstacles — every frame at thirty frames per second.',
+  'Text information becomes abundant and cheap — query a thousand widths in microseconds.',
+]
 
 // ── Font loading ──
 async function loadFont() {
@@ -71,38 +68,58 @@ async function loadFont() {
 
 // ── News fetch ──
 function parseRss(xml) {
-  const doc   = new DOMParser().parseFromString(xml, 'application/xml')
+  const doc = new DOMParser().parseFromString(xml, 'application/xml')
   return [...doc.querySelectorAll('item')].map(el => {
     const title = el.querySelector('title')?.textContent?.trim() ?? ''
     const desc  = (el.querySelector('description')?.textContent ?? '')
       .replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
     return [title, desc].filter(Boolean).join('. ')
-  })
+  }).filter(t => t.length > 4)
+}
+
+async function tryFetch(url) {
+  const res  = await fetch(url, { signal: AbortSignal.timeout(8000) })
+  const body = await res.text()
+  // allorigins wraps in JSON; corsproxy returns raw XML
+  try { const j = JSON.parse(body); if (j.contents) return j.contents } catch (_) {}
+  return body
 }
 
 async function fetchNews() {
   const feeds = [
     'https://www.yna.co.kr/rss/news.xml',
     'https://world.kbs.co.kr/rss/rss_korean.htm',
+    'https://feeds.bbci.co.uk/korean/rss.xml',
   ]
-  for (const url of feeds) {
-    try {
-      const res   = await fetch(`https://corsproxy.io/?${encodeURIComponent(url)}`,
-        { signal: AbortSignal.timeout(8000) })
-      const items = parseRss(await res.text())
-      if (items.length) { bgText = items.join(' ◆ '); break }
-    } catch (_) {}
+  // corsproxy.io: raw URL after '?' — NO encodeURIComponent
+  // allorigins: encoded URL in query param
+  const wrappers = [
+    url => `https://corsproxy.io/?${url}`,
+    url => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+  ]
+
+  for (const feed of feeds) {
+    for (const wrap of wrappers) {
+      try {
+        const xml   = await tryFetch(wrap(feed))
+        const items = parseRss(xml)
+        if (items.length >= 3) {
+          newsItems = items
+          return
+        }
+      } catch (_) {}
+    }
   }
-  if (!bgText) bgText = DEFAULT_BG_TEXT
+  // keep DEFAULT_NEWS
 }
 
 // ── Sprite setup ──
 function setupSprites() {
   measuredFrames = frames.map(lines => ({ lines }))
-  ctx.font   = `${CHAR_FONT_SIZE}px "Geist Mono", monospace`
-  spriteCharW    = ctx.measureText('M').width
-  globalSpriteW  = spriteCharW * frames[0][0].length
-  globalSpriteH  = CHAR_LINE_H  * frames[0].length
+  ctx.font  = `${CHAR_FONT_SIZE}px "Geist Mono", monospace`
+  spriteCharW   = ctx.measureText('M').width
+  globalSpriteW = spriteCharW   * frames[0][0].length
+  globalSpriteH = CHAR_LINE_H   * frames[0].length
 }
 
 // ── Sizing ──
@@ -110,13 +127,13 @@ function computeSize() {
   vw = window.innerWidth
   vh = window.innerHeight
 
-  // Scale so sprite height = CHAR_HEIGHT_FRAC * vh
   scale = (vh * CHAR_HEIGHT_FRAC) / globalSpriteH
 
-  // Sprite feet land exactly on the text horizon
-  const feetY = vh * TEXT_HORIZON_FRAC
-  charScreenX  = vw * CHAR_X_FRAC
-  charScreenY  = feetY - (globalSpriteH * scale) / 2  // center above feet
+  const horizonY = vh * TEXT_HORIZON_FRAC
+  charScreenX    = vw * CHAR_X_FRAC
+  // Sink the sprite so its bottom 18 % sits inside the text area,
+  // creating real character-level collision rows for the legs/feet.
+  charScreenY    = horizonY - globalSpriteH * scale * 0.82
 
   const dpr = window.devicePixelRatio || 1
   canvas.width        = vw * dpr
@@ -125,12 +142,63 @@ function computeSize() {
   canvas.style.height = `${vh}px`
 }
 
-// ── Per-row perspective helpers ──
-// Returns null for rows above the text horizon.
+// ── Pixel-precise sprite collision ──
+// Scans all non-space characters in the current frame that overlap
+// the vertical band [bandTop, bandBottom] in screen space.
+// Returns {left, right} screen-x interval or null.
+//
+// Character transform chain (see renderFrame):
+//   ctx.translate(charScreenX, charScreenY)
+//   ctx.scale(direction * scale, scale)
+//   ctx.translate(-globalSpriteW / 2, 0)
+// So for a local x:
+//   screenX = charScreenX + (localX - globalSpriteW/2) * direction * scale
+function spriteBlockedX(bandTop, bandBottom) {
+  const mf = measuredFrames[currentFrame]
+  if (!mf) return null
+
+  const sprTop = charScreenY
+  const sprBot = charScreenY + globalSpriteH * scale
+  if (bandBottom <= sprTop || bandTop >= sprBot) return null
+
+  let minX =  Infinity
+  let maxX = -Infinity
+
+  const lines = mf.lines
+  for (let r = 0; r < lines.length; r++) {
+    const rowTop = charScreenY + r       * CHAR_LINE_H * scale
+    const rowBot = charScreenY + (r + 1) * CHAR_LINE_H * scale
+    if (rowBot <= bandTop || rowTop >= bandBottom) continue
+
+    const line = lines[r]
+    for (let c = 0; c < line.length; c++) {
+      if (line[c] === ' ') continue
+      // Local x span of this glyph column
+      const lx1 = c       * spriteCharW
+      const lx2 = (c + 1) * spriteCharW
+      // Map to screen (handles direction flip via sign of direction*scale)
+      const sx1 = charScreenX + (lx1 - globalSpriteW / 2) * direction * scale
+      const sx2 = charScreenX + (lx2 - globalSpriteW / 2) * direction * scale
+      const lo  = Math.min(sx1, sx2)
+      const hi  = Math.max(sx1, sx2)
+      if (lo < minX) minX = lo
+      if (hi > maxX) maxX = hi
+    }
+  }
+
+  if (minX === Infinity) return null
+  // Clamp to viewport
+  return {
+    left:  Math.max(0, minX),
+    right: Math.min(vw, maxX),
+  }
+}
+
+// ── Per-row perspective properties ──
 function rowProps(screenY) {
   const horizonY = vh * TEXT_HORIZON_FRAC
   if (screenY < horizonY) return null
-  const t        = (screenY - horizonY) / (vh - horizonY)  // 0=far, 1=near
+  const t        = (screenY - horizonY) / (vh - horizonY)   // 0 = far, 1 = near
   const fontSize = FONT_MIN + t * (FONT_MAX - FONT_MIN)
   const lineH    = fontSize * LINE_MULT
   const parallax = PARALLAX_MIN + t * (PARALLAX_MAX - PARALLAX_MIN)
@@ -138,63 +206,70 @@ function rowProps(screenY) {
   return { fontSize, lineH, parallax, opacity }
 }
 
-// ── Render background ──
-function renderBgText(charL, charR, charT, charB) {
-  if (!bgText) return
+// ── Draw one tiled text row with optional collision split ──
+// Editorial-engine approach: text fills every available slot,
+// flowing without gap up to the actual character pixel boundary.
+function drawRow(text, screenY, lineH, rowScrollX, opacity, fontSize, blocked) {
+  ctx.font         = `${fontSize.toFixed(1)}px "Geist Mono", monospace`
+  ctx.textBaseline = 'top'
+  ctx.fillStyle    = `rgba(255, 255, 255, ${opacity})`
 
-  const repeatStr = bgText + '  ◆  '
-  const horizonY  = vh * TEXT_HORIZON_FRAC
-  let   screenY   = horizonY
+  const tileW = ctx.measureText(text).width
+  if (tileW <= 0) return
+
+  // Normalised start offset: 0 at rightmost, increasing → text moves left
+  const off    = ((-rowScrollX % tileW) + tileW) % tileW
+  const startX = -(tileW - off)   // first tile starts at or before x = 0
+
+  function drawTiled(clipL, clipR) {
+    if (clipR <= clipL) return
+    ctx.save()
+    ctx.beginPath()
+    ctx.rect(clipL, screenY, clipR - clipL, lineH)
+    ctx.clip()
+    // Jump to the tile nearest to clipL
+    let x = startX + Math.max(0, Math.floor((clipL - startX) / tileW) - 1) * tileW
+    while (x < clipR) { ctx.fillText(text, x, screenY); x += tileW }
+    ctx.restore()
+  }
+
+  if (blocked && blocked.right > blocked.left) {
+    drawTiled(0, blocked.left)       // left slot
+    drawTiled(blocked.right, vw)     // right slot
+  } else {
+    drawTiled(0, vw)
+  }
+}
+
+// ── Render background text ──
+function renderBgText() {
+  const items    = newsItems.length ? newsItems : DEFAULT_NEWS
+  const horizonY = vh * TEXT_HORIZON_FRAC
+  let   screenY  = horizonY
+  let   rowIndex = 0
 
   while (screenY < vh) {
     const p = rowProps(screenY)
     if (!p) { screenY += FONT_MIN * LINE_MULT; continue }
     const { fontSize, lineH, parallax, opacity } = p
 
-    ctx.font         = `${fontSize.toFixed(1)}px "Geist Mono", monospace`
-    ctx.textBaseline = 'top'
-    ctx.fillStyle    = `rgba(255, 255, 255, ${opacity})`
+    // Each row shows a different news item
+    const text       = items[rowIndex % items.length]
+    const rowScrollX = textScrollX * parallax
 
-    const rowW = ctx.measureText(repeatStr).width
-    // Raw scroll × per-row parallax factor; invert so right-walk = text moves left
-    const rawOff = ((textScrollX * parallax) % rowW + rowW) % rowW
+    // Pixel-precise collision: scan actual non-space glyph positions
+    const blocked = spriteBlockedX(screenY, screenY + lineH)
 
-    const rowB = screenY + lineH
-    const overlapChar = screenY < charB && rowB > charT
+    drawRow(text, screenY, lineH, rowScrollX, opacity, fontSize, blocked)
 
-    if (overlapChar) {
-      // Left clip region
-      if (charL > 0) {
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(0, screenY, charL, lineH)
-        ctx.clip()
-        let x = -rawOff
-        while (x < charL) { ctx.fillText(repeatStr, x, screenY); x += rowW }
-        ctx.restore()
-      }
-      // Right clip region
-      if (charR < vw) {
-        ctx.save()
-        ctx.beginPath()
-        ctx.rect(charR, screenY, vw - charR, lineH)
-        ctx.clip()
-        let x = charR - rawOff
-        while (x < vw) { ctx.fillText(repeatStr, x, screenY); x += rowW }
-        ctx.restore()
-      }
-    } else {
-      let x = -rawOff
-      while (x < vw) { ctx.fillText(repeatStr, x, screenY); x += rowW }
-    }
-
-    screenY += lineH
+    screenY  += lineH
+    rowIndex++
   }
 }
 
-// ── Render one animation frame ──
+// ── Render frame ──
 function renderFrame(idx) {
-  const mf  = measuredFrames[idx]
+  const mf = measuredFrames[idx]
   if (!mf) return
 
   const dpr = window.devicePixelRatio || 1
@@ -207,18 +282,10 @@ function renderFrame(idx) {
   ctx.fillRect(0, 0, vw, vh)
   ctx.restore()
 
-  // Sprite bounding box in CSS pixels
-  const sprW  = globalSpriteW * scale
-  const sprH  = globalSpriteH * scale
-  const charL = charScreenX - sprW / 2
-  const charR = charScreenX + sprW / 2
-  const charT = charScreenY
-  const charB = charScreenY + sprH
-
-  // Background text
+  // Background text first (sprite renders on top)
   ctx.save()
   ctx.scale(dpr, dpr)
-  renderBgText(charL, charR, charT, charB)
+  renderBgText()
   ctx.restore()
 
   // ASCII sprite
@@ -226,7 +293,7 @@ function renderFrame(idx) {
   ctx.scale(dpr, dpr)
   ctx.translate(charScreenX, charScreenY)
   ctx.scale(direction * scale, scale)
-  ctx.translate(-globalSpriteW / 2, 0)   // pivot: top-center
+  ctx.translate(-globalSpriteW / 2, 0)   // horizontal centre pivot
   ctx.font         = `${CHAR_FONT_SIZE}px "Geist Mono", monospace`
   ctx.textBaseline = 'top'
   ctx.shadowColor  = GLOW_COLOR
@@ -238,7 +305,7 @@ function renderFrame(idx) {
   ctx.restore()
 }
 
-// ── Walk trigger ──
+// ── Input ──
 function startWalk(dir) {
   if (isWalking) return
   direction    = dir
@@ -246,7 +313,6 @@ function startWalk(dir) {
   isWalking    = true
 }
 
-// ── Input ──
 window.addEventListener('keydown', e => {
   if (e.key === 'ArrowRight') startWalk(1)
   else if (e.key === 'ArrowLeft')  startWalk(-1)
@@ -260,12 +326,9 @@ window.addEventListener('pointerdown', e => {
 // ── Animation loop ──
 function animate(ts) {
   const interval = 1000 / FPS
-
   if (ts - lastFrameTime >= interval) {
     lastFrameTime = ts - ((ts - lastFrameTime) % interval)
-
     if (isWalking) {
-      // right walk (direction=1) → text flows left (scrollX decreases)
       textScrollX  -= direction * SCROLL_PER_FRAME
       currentFrame++
       if (currentFrame >= TOTAL_FRAMES) {
@@ -273,10 +336,8 @@ function animate(ts) {
         currentFrame = 0
       }
     }
-
     renderFrame(currentFrame)
   }
-
   requestAnimationFrame(animate)
 }
 
@@ -294,12 +355,12 @@ async function init() {
   await loadFont()
   setupSprites()
   computeSize()
-  bgText = DEFAULT_BG_TEXT
+  newsItems = [...DEFAULT_NEWS]
 
   lastFrameTime = performance.now()
   requestAnimationFrame(animate)
 
-  fetchNews()
+  fetchNews()  // async — swaps in real news when ready
 }
 
 init()
