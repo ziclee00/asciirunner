@@ -10,6 +10,11 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  /* 3. 영역선택 UI 및 하이라이트 방지 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body {
@@ -17,6 +22,7 @@ html, body {
   height: 100%;
   overflow: hidden;
   background: #000;
+  touch-action: none; /* Prevent scrolling/zooming on mobile */
 }
 
 #app {
@@ -53,9 +59,13 @@ canvas {
 #refreshBtn:hover {
   background: rgba(0, 255, 64, 0.2);
   border-color: #00ff40;
-  box-shadow: 0 0 10px rgba(0, 255, 64, 0.2);
 }
 
-#refreshBtn:active {
-  transform: scale(0.95);
+@media (max-width: 600px) {
+  #refreshBtn {
+    top: 10px;
+    right: 10px;
+    font-size: 12px;
+    padding: 6px 12px;
+  }
 }
