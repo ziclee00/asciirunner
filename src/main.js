@@ -288,7 +288,9 @@ function renderFrame(idx) {
 function updateBackgroundText() {
   bgTextRaw = bgTextInput.value
   if (bgTextRaw.trim().length > 0) {
-    preparedBgText = prepareWithSegments(bgTextRaw, BG_FONT)
+    // Insert zero-width space between every character to force character-level wrapping
+    const charWrappedText = bgTextRaw.split('').join('\u200B')
+    preparedBgText = prepareWithSegments(charWrappedText, BG_FONT)
   } else {
     preparedBgText = null
   }
