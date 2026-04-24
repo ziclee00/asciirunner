@@ -37,105 +37,59 @@ canvas {
   position: absolute;
   top: 20px;
   right: 20px;
-  background: rgba(0, 255, 64, 0.1);
-  border: 1px solid #00ff40;
-  padding: 12px 16px;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(0, 255, 64, 0.4);
+  padding: 10px 14px;
   color: #00ff40;
   font-family: 'Geist Mono', monospace;
-  font-size: 14px;
+  font-size: 12px;
   border-radius: 4px;
   z-index: 10;
   backdrop-filter: blur(4px);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  width: 320px;
+  gap: 8px;
 }
 
 .control-group {
   display: flex;
   flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
+}
+
+.control-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
 }
 
 #inspector input[type="number"] {
   background: transparent;
-  border: 1px solid #00ff40;
+  border: 1px solid rgba(0, 255, 64, 0.5);
   color: #00ff40;
-  padding: 4px 8px;
-  width: 60px;
+  padding: 2px 6px;
+  width: 56px;
   font-family: inherit;
   font-size: inherit;
   outline: none;
+  border-radius: 2px;
 }
 
-#inspector input[type="text"] {
-  background: rgba(0, 255, 64, 0.05);
-  border: 1px solid #00ff40;
-  color: #00ff40;
-  padding: 4px 8px;
-  flex: 1;
-  font-family: inherit;
-  font-size: inherit;
-  outline: none;
-}
-
-#inspector textarea {
-  background: rgba(0, 255, 64, 0.05);
-  border: 1px solid #00ff40;
-  color: #00ff40;
-  padding: 8px;
-  font-family: inherit;
-  font-size: inherit;
-  outline: none;
-  resize: vertical;
-  margin-top: 4px;
-}
-
-#inspector button {
-  background: rgba(0, 255, 64, 0.2);
-  border: 1px solid #00ff40;
-  color: #00ff40;
-  padding: 4px 12px;
-  cursor: pointer;
-  font-family: inherit;
-  font-size: inherit;
-  transition: background 0.2s;
-}
-
-#inspector button:hover {
-  background: rgba(0, 255, 64, 0.4);
+#inspector input[type="number"]:focus {
+  border-color: #00ff40;
 }
 
 @media (max-width: 768px) {
   #inspector {
-    width: auto;
-    left: 20px;
-    right: 20px;
-    padding: 8px 12px;
-    font-size: 12px;
+    top: 10px;
+    right: 10px;
+    left: 10px;
+    padding: 8px 10px;
   }
-  
   .control-group {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 4px;
-  }
-  
-  #inspector input[type="number"], 
-  #inspector input[type="text"], 
-  #inspector textarea, 
-  #inspector button {
-    width: 100%;
-    box-sizing: border-box;
-  }
-  
-  #inspector label {
-    display: flex;
-    justify-content: space-between;
-    width: 100%;
-    align-items: center;
+    gap: 8px;
   }
 }
