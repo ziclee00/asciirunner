@@ -32,3 +32,30 @@ canvas {
   display: block;
   image-rendering: pixelated;
 }
+
+#refreshBtn {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  background: rgba(0, 255, 64, 0.1);
+  border: 1px solid rgba(0, 255, 64, 0.4);
+  color: #00ff40;
+  font-family: 'Geist Mono', monospace;
+  font-size: 14px;
+  padding: 8px 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  backdrop-filter: blur(4px);
+  z-index: 100;
+  transition: all 0.2s;
+}
+
+#refreshBtn:hover {
+  background: rgba(0, 255, 64, 0.2);
+  border-color: #00ff40;
+  box-shadow: 0 0 10px rgba(0, 255, 64, 0.2);
+}
+
+#refreshBtn:active {
+  transform: scale(0.95);
+}

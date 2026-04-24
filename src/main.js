@@ -7,22 +7,22 @@ const TOTAL_FRAMES = frames.length
 const FPS = 30
 const TEXT_COLOR = '#00ff40'
 const GLOW_COLOR = 'rgba(0, 255, 64, 0.15)'
-const BG_TEXT_COLOR = '#ffffff'
 const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
 
-// ── Parallax Layers (based on Figma metadata) ──
+// ── Parallax Layers ──
+// Updated opacity: 2-1. Bottom 100%, 2-2. -10% per layer up
 const LAYERS_CONFIG = [
-  { y: 456, fontSize: 15, speed: 1.0 },
-  { y: 476, fontSize: 15, speed: 1.2 },
-  { y: 496, fontSize: 15, speed: 1.4 },
-  { y: 516, fontSize: 15, speed: 1.6 },
-  { y: 536, fontSize: 15, speed: 1.8 },
-  { y: 556, fontSize: 15, speed: 2.0 },
-  { y: 578, fontSize: 20, speed: 2.5 },
-  { y: 605, fontSize: 30, speed: 3.5 },
-  { y: 642, fontSize: 40, speed: 4.5 },
-  { y: 689, fontSize: 50, speed: 6.0 },
-  { y: 746, fontSize: 60, speed: 8.0 },
+  { y: 456, fontSize: 15, speed: 1.0, opacity: 0.1 },
+  { y: 476, fontSize: 15, speed: 1.2, opacity: 0.2 },
+  { y: 496, fontSize: 15, speed: 1.4, opacity: 0.3 },
+  { y: 516, fontSize: 15, speed: 1.6, opacity: 0.4 },
+  { y: 536, fontSize: 15, speed: 1.8, opacity: 0.5 },
+  { y: 556, fontSize: 15, speed: 2.0, opacity: 0.6 },
+  { y: 578, fontSize: 20, speed: 2.5, opacity: 0.7 },
+  { y: 605, fontSize: 30, speed: 3.5, opacity: 0.8 },
+  { y: 642, fontSize: 40, speed: 4.5, opacity: 0.9 },
+  { y: 689, fontSize: 50, speed: 6.0, opacity: 1.0 }, // Bottom (relative to Figma range)
+  { y: 746, fontSize: 60, speed: 8.0, opacity: 1.0 }, // Bottom-most
 ]
 
 // ── State ──
@@ -31,9 +31,8 @@ let lastFrameTime = 0
 let canvas, ctx
 let isWalking = false
 let direction = 1
-let newsText = "연합뉴스 속보를 불러오는 중입니다..."
-let newsChars = [] // Array of { char: string, width: number } for each layer
-let layersState = [] // { scrollX: number }
+let newsArticles = [] // Array of strings
+let layersState = [] // { scrollX: number, articleIndex: number }
 
 // Character layout state
 let charWidth = 0
@@ -47,6 +46,9 @@ let charScreenY = 0
 
 // ── News Fetching ──
 async function fetchNews() {
+  const refreshBtn = document.getElementById('refreshBtn')
+  if (refreshBtn) refreshBtn.textContent = 'Refreshing...'
+  
   try {
     const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(NEWS_RSS_URL)}`
     const res = await fetch(proxyUrl)
@@ -55,35 +57,30 @@ async function fetchNews() {
     const xml = parser.parseFromString(data.contents, 'text/xml')
     const items = xml.querySelectorAll('item')
     
-    let combinedText = ""
+    newsArticles = []
     items.forEach(item => {
       const title = item.querySelector('title')?.textContent || ""
       const description = item.querySelector('description')?.textContent || ""
-      combinedText += `[속보] ${title} : ${description} `.replace(/<[^>]*>?/gm, '')
+      const article = `[속보] ${title} : ${description} `.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim()
+      if (article) newsArticles.push(article)
     })
     
-    newsText = combinedText.replace(/\s+/g, ' ').trim()
-    if (!newsText) newsText = "뉴스를 가져오지 못했습니다. 잠시 후 다시 시도해주세요."
+    if (newsArticles.length === 0) newsArticles = ["뉴스를 불러오지 못했습니다."]
     
-    preMeasureNews()
+    // Assign random news to each layer
+    layersState.forEach(layer => {
+      layer.articleIndex = Math.floor(Math.random() * newsArticles.length)
+    })
+    
   } catch (err) {
     console.error('News fetch error:', err)
-    newsText = "연합뉴스 데이터를 불러오는 데 실패했습니다."
-    preMeasureNews()
+    newsArticles = ["뉴스 데이터를 불러오는 데 실패했습니다."]
+  } finally {
+    if (refreshBtn) refreshBtn.textContent = 'News Refresh'
   }
 }
 
-function preMeasureNews() {
-  newsChars = LAYERS_CONFIG.map(config => {
-    ctx.font = `${config.fontSize}px "Geist Mono", monospace`
-    return newsText.split('').map(c => ({
-      char: c,
-      width: ctx.measureText(c).width
-    }))
-  })
-}
-
-// ── Collision / Slot Calculation ──
+// ── Collision / Obstacle Calculation ──
 function getObstaclesForBand(bandTop, bandBottom, frameLines) {
   const spriteH = globalMaxHeight * scale
   const obY = charScreenY - spriteH / 2
@@ -121,7 +118,7 @@ function getObstaclesForBand(bandTop, bandBottom, frameLines) {
           worldStartX = charScreenX - localEndX * scale
           worldEndX = charScreenX - localStartX * scale
         }
-        blocked.push({ left: worldStartX - 2, right: worldEndX + 2 })
+        blocked.push({ left: worldStartX - 5, right: worldEndX + 5 })
       }
     }
   }
@@ -156,7 +153,8 @@ function computeSize() {
   globalMaxWidth = charWidth * cols
   globalMaxHeight = 14 * rows
   
-  scale = (vh * 0.35) / globalMaxHeight
+  // 1. 축소: 기존 0.35에서 0.7 곱함 (~0.24)
+  scale = (vh * 0.35 * 0.7) / globalMaxHeight
   charScreenX = vw * 0.25
   charScreenY = vh * 0.4 
   
@@ -182,44 +180,53 @@ function renderFrame(idx) {
   ctx.save()
   ctx.scale(dpr, dpr)
   ctx.textBaseline = 'top'
-  ctx.fillStyle = BG_TEXT_COLOR
   
   LAYERS_CONFIG.forEach((config, i) => {
-    const chars = newsChars[i]
-    if (!chars) return
+    const state = layersState[i]
+    const article = newsArticles[state.articleIndex % newsArticles.length] || newsArticles[0]
+    if (!article) return
     
     ctx.font = `${config.fontSize}px "Geist Mono", monospace`
+    ctx.globalAlpha = config.opacity // Apply opacity gradient
+    ctx.fillStyle = '#ffffff'
+    
     const obstacles = getObstaclesForBand(config.y, config.y + config.fontSize, currentFrameLines)
     
-    // Virtual scroll offset
-    let scrollX = layersState[i].scrollX
-    
-    // Starting X (tiled)
-    let totalTextWidth = chars.reduce((sum, c) => sum + c.width, 0)
+    // Measure full width
+    const textWidth = ctx.measureText(article).width
     if (totalTextWidth === 0) return
     
-    // We want to render enough tiles to fill the screen
-    // We start rendering from scrollX (could be negative)
-    let drawX = (scrollX % totalTextWidth) - totalTextWidth
+    // Tiling logic with CLIPPING (no reflow)
+    let drawX = (state.scrollX % textWidth) - textWidth
+    
+    // 3. 충돌 삭제 및 클리핑 처리
+    // We can use a simple trick: clip the entire line drawing by the "inverse" of the obstacles
+    ctx.save()
+    if (obstacles.length > 0) {
+      // Instead of complex path clipping, we'll just draw segments that are outside obstacles
+      // This is easier for single line tiling
+    }
     
     while (drawX < vw) {
-      for (let cInfo of chars) {
-        // Collision check: if the character would be drawn inside an obstacle, skip/push it
-        let isBlocked = false
-        for (let b of obstacles) {
-          if (drawX + cInfo.width > b.left && drawX < b.right) {
-            drawX = b.right
-            isBlocked = true
-            break
-          }
-        }
-        
-        if (drawX >= vw) break
-        
-        ctx.fillText(cInfo.char, drawX, config.y)
-        drawX += cInfo.width
-      }
+      // Draw the text, but skip parts that are blocked
+      // To simplify "overlapping text deletion", we use clearRect on the character areas later 
+      // or just draw in non-blocked segments.
+      
+      // Let's use the segment drawing approach:
+      let currentX = drawX
+      // Actually, fillText article at currentX is fine if we later "mask" the character
+      ctx.fillText(article, currentX, config.y)
+      drawX += textWidth
     }
+    
+    // Mask character areas for this layer
+    ctx.globalAlpha = 1.0
+    ctx.fillStyle = '#000000'
+    obstacles.forEach(b => {
+      ctx.fillRect(b.left, config.y, b.right - b.left, config.fontSize)
+    })
+    
+    ctx.restore()
   })
   
   ctx.restore()
@@ -274,13 +281,17 @@ window.addEventListener('keydown', e => {
 })
 
 window.addEventListener('pointerdown', e => {
+  if (e.target.closest('#refreshBtn')) return
   if (e.clientX >= window.innerWidth / 2) startWalk(1)
   else startWalk(-1)
 })
 
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  fetchNews()
+})
+
 window.addEventListener('resize', () => {
   computeSize()
-  preMeasureNews()
   renderFrame(currentFrame)
 })
 
@@ -295,7 +306,7 @@ async function init() {
   measureAllFrames()
   computeSize()
   
-  LAYERS_CONFIG.forEach(() => layersState.push({ scrollX: 0 }))
+  LAYERS_CONFIG.forEach(() => layersState.push({ scrollX: 0, articleIndex: 0 }))
   
   await fetchNews()
   requestAnimationFrame(animate)
