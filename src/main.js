@@ -9,8 +9,6 @@ const TEXT_COLOR = '#00ff40'
 const GLOW_COLOR = 'rgba(0, 255, 64, 0.15)'
 const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
 
-// ── Parallax Layers Definition ──
-// We'll define base sizes and speeds. Y positions will be calculated from the bottom.
 const LAYERS_BASE = [
   { fontSize: 14, speed: 1.0, opacity: 0.1 },
   { fontSize: 14, speed: 1.2, opacity: 0.2 },
@@ -25,16 +23,16 @@ const LAYERS_BASE = [
   { fontSize: 65, speed: 10.5, opacity: 1.0 },
 ]
 
-let layersConfig = [] // Will hold calculated { y, fontSize, speed, opacity }
+let layersConfig = []
+let layersState = []
 
 // ── State ──
 let currentFrame = 0
 let lastFrameTime = 0
 let canvas, ctx
-let isWalking = false
+let isWalking = false // Represents held state
 let direction = 1
 let newsArticles = ["뉴스를 불러오는 중입니다...", "연합뉴스 실시간 속보 수신 중..."]
-let layersState = [] // { scrollX, articleIndex, measuredChars }
 
 let charWidth = 0
 let lineHeight = 14
@@ -59,8 +57,7 @@ async function fetchNews() {
       const res = await fetch(getProxyUrl(NEWS_RSS_URL))
       let text = ""
       if (res.url.includes('allorigins')) {
-        const data = await res.json()
-        text = data.contents
+        const data = await res.json(); text = data.contents;
       } else { text = await res.text() }
       const parser = new DOMParser()
       const xml = parser.parseFromString(text, 'text/xml')
@@ -75,8 +72,7 @@ async function fetchNews() {
       if (fetched.length > 0) {
         newsArticles = fetched
         updateLayersContent()
-        success = true
-        break 
+        success = true; break;
       }
     } catch (err) { console.warn('Proxy failed...') }
   }
@@ -117,38 +113,28 @@ function computeSize() {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const isMobile = vw < 600
-  
   ctx.font = `14px "Geist Mono", monospace`
   charWidth = ctx.measureText('M').width
   const cols = frames[0][0].length
   const rows = frames[0].length
   globalMaxWidth = charWidth * cols
   globalMaxHeight = 14 * rows
-  
-  // Mobile adjustments
   const baseScale = isMobile ? 0.45 : 0.35
   scale = (vh * baseScale * 0.5) / globalMaxHeight
-  charScreenX = isMobile ? 60 : 180 // Move closer to edge on mobile
-  
-  // 1. 하단 공백 제거: 최하단부터 레이어 계산
+  charScreenX = isMobile ? 60 : 180 
   let currentY = vh
   layersConfig = LAYERS_BASE.slice().reverse().map(base => {
-    // We add some spacing between layers based on font size
     const spacing = base.fontSize * 0.2
     currentY -= (base.fontSize + spacing)
     return { ...base, y: currentY }
   }).reverse()
-  
-  // Position character feet above the first layer (which is at layersConfig[0].y)
   const charH = globalMaxHeight * scale
   charScreenY = layersConfig[0].y - (charH / 2) - 5
-  
   const dpr = window.devicePixelRatio || 1
   canvas.width = vw * dpr
   canvas.height = vh * dpr
   canvas.style.width = `${vw}px`
   canvas.style.height = `${vh}px`
-  
   updateLayersContent()
 }
 
@@ -159,7 +145,6 @@ function renderFrame(idx) {
   const dpr = window.devicePixelRatio || 1
   const vw = window.innerWidth
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  
   ctx.save()
   ctx.scale(dpr, dpr)
   ctx.textBaseline = 'top'
@@ -181,7 +166,6 @@ function renderFrame(idx) {
     }
   })
   ctx.restore()
-  
   ctx.save()
   ctx.scale(dpr, dpr)
   ctx.translate(charScreenX, charScreenY)
@@ -189,9 +173,7 @@ function renderFrame(idx) {
   ctx.translate(-globalMaxWidth / 2, -globalMaxHeight / 2)
   ctx.font = `14px "Geist Mono", monospace`
   ctx.textBaseline = 'top'
-  ctx.shadowColor = GLOW_COLOR
-  ctx.shadowBlur = 10
-  ctx.fillStyle = TEXT_COLOR
+  ctx.shadowColor = GLOW_COLOR; ctx.shadowBlur = 10; ctx.fillStyle = TEXT_COLOR;
   mf.lines.forEach((line, r) => ctx.fillText(line, 0, r * 14))
   ctx.restore()
 }
@@ -201,39 +183,63 @@ function animate(timestamp) {
   const interval = 1000 / FPS
   if (timestamp - lastFrameTime >= interval) {
     lastFrameTime = timestamp - ((timestamp - lastFrameTime) % interval)
+    
+    // 1. 입력 유지 동안 계속 루프
     if (isWalking) {
       layersConfig.forEach((config, i) => {
         layersState[i].scrollX -= direction * config.speed
       })
-      currentFrame++
-      if (currentFrame >= TOTAL_FRAMES) {
-        isWalking = false
-        currentFrame = 0
-      }
+      currentFrame = (currentFrame + 1) % TOTAL_FRAMES
+    } else {
+      // 멈췄을 때 첫 프레임(기본 자세)으로 복귀
+      currentFrame = 0
     }
     renderFrame(currentFrame)
   }
   requestAnimationFrame(animate)
 }
 
-function startWalk(dir) {
-  if (isWalking) return
-  direction = dir
-  isWalking = true
-  currentFrame = 0
+// ── Input Detection ──
+const activeInputs = new Set()
+
+function updateWalkingState() {
+  if (activeInputs.size > 0) {
+    isWalking = true
+  } else {
+    isWalking = false
+  }
 }
 
 window.addEventListener('keydown', e => {
-  if (e.key === 'ArrowRight') startWalk(1)
-  else if (e.key === 'ArrowLeft') startWalk(-1)
+  if (e.key === 'ArrowRight') { direction = 1; activeInputs.add('right'); }
+  if (e.key === 'ArrowLeft') { direction = -1; activeInputs.add('left'); }
+  updateWalkingState()
 })
+
+window.addEventListener('keyup', e => {
+  if (e.key === 'ArrowRight') activeInputs.delete('right')
+  if (e.key === 'ArrowLeft') activeInputs.delete('left')
+  updateWalkingState()
+})
+
 window.addEventListener('pointerdown', e => {
   if (e.target.closest('#refreshBtn')) return
-  // Handle multi-touch or simple click
-  const x = e.clientX || (e.touches && e.touches[0].clientX)
-  if (x >= window.innerWidth / 2) startWalk(1)
-  else startWalk(-1)
+  const x = e.clientX
+  if (x >= window.innerWidth / 2) { direction = 1; activeInputs.add('pointer'); }
+  else { direction = -1; activeInputs.add('pointer'); }
+  updateWalkingState()
 })
+
+window.addEventListener('pointerup', () => {
+  activeInputs.delete('pointer')
+  updateWalkingState()
+})
+
+window.addEventListener('pointerleave', () => {
+  activeInputs.delete('pointer')
+  updateWalkingState()
+})
+
 document.getElementById('refreshBtn').addEventListener('click', e => {
   e.stopPropagation()
   fetchNews()
