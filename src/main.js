@@ -6,9 +6,11 @@ import { frames } from './frames.js'
 const TOTAL_FRAMES = frames.length
 const FPS = 30
 const TEXT_COLOR = '#00ff40'
-const GLOW_COLOR = 'rgba(0, 255, 64, 0.15)'
+// Glow 효과를 제거하거나 아주 미세하게 조정하여 흐릿함(Blur) 방지
+const GLOW_COLOR = 'rgba(0, 255, 64, 0.05)' 
 const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
 
+// ── New Layer Structure ──
 const FLOOR_LAYERS = [
   { fontSize: 20, speed: 1.5, opacity: 0.6 },
   { fontSize: 30, speed: 2.5, opacity: 0.7 },
@@ -37,13 +39,13 @@ let direction = 1
 let newsArticles = ["뉴스를 불러오는 중입니다...", "연합뉴스 실시간 속보 수신 중..."]
 
 // Character config
-let charFontSize = 14 // 14pt (피그마 디자인 초기 사이즈로 복구)
+let charFontSize = 14 
 let charWidth = 0
 let lineHeight = charFontSize
 let measuredFrames = []
 let globalMaxWidth = 0
 let globalMaxHeight = 0
-let scale = 1 // 1:1 비율로 렌더링
+let scale = 1 
 let charScreenX = 180 
 let charScreenY = 0
 
@@ -117,42 +119,37 @@ function computeSize() {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const isMobile = vw < 600
-  
   ctx.font = `${charFontSize}px "Geist Mono", monospace`
   charWidth = ctx.measureText('M').width
   const cols = frames[0][0].length
   const rows = frames[0].length
   globalMaxWidth = charWidth * cols
   globalMaxHeight = charFontSize * rows
-  
-  // 1. 캐릭터 사이즈 복구: 14pt 폰트 그대로 1:1 출력
   scale = 1.0 
   charScreenX = isMobile ? 60 : 180 
-  
   let currentY = vh
   const floorConfig = FLOOR_LAYERS.slice().reverse().map(base => {
     const spacing = base.fontSize * 0.15
     currentY -= (base.fontSize + spacing)
     return { ...base, y: currentY, type: 'floor' }
   }).reverse()
-
   let wallY = floorConfig[0].y
   const wallConfig = WALL_LAYERS.slice().reverse().map(base => {
     const spacing = 10
     wallY -= (base.fontSize + spacing)
     return { ...base, y: wallY, type: 'wall' }
   }).reverse()
-
   allLayersConfig = [...wallConfig, ...floorConfig]
-
   const charH = globalMaxHeight * scale
   charScreenY = floorConfig[0].y - (charH / 2) - 2
   
+  // DPR 처리하여 캔버스 선명도 확보
   const dpr = window.devicePixelRatio || 1
-  canvas.width = vw * dpr
-  canvas.height = vh * dpr
+  canvas.width = Math.floor(vw * dpr)
+  canvas.height = Math.floor(vh * dpr)
   canvas.style.width = `${vw}px`
   canvas.style.height = `${vh}px`
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0) // DPR 스케일 적용
   
   updateLayersContent()
 }
@@ -181,25 +178,34 @@ function drawLayer(config, state) {
 function renderFrame(idx) {
   const mf = measuredFrames[idx]
   if (!mf) return
-  const dpr = window.devicePixelRatio || 1
   ctx.clearRect(0, 0, canvas.width, canvas.height)
+  
   ctx.save()
-  ctx.scale(dpr, dpr)
+  // setTransform으로 이미 적용되었으므로 추가 스케일링 불필요
   ctx.textBaseline = 'top'
 
+  // 1. 벽뉴스 (벽텍스트는 캐릭터보다 뒤쪽)
   allLayersConfig.forEach((config, i) => {
     if (config.type === 'wall') drawLayer(config, layersState[i])
   })
 
+  // 2. 캐릭터 (선명하게 렌더링)
   ctx.save()
+  ctx.globalAlpha = 1.0 // 캐릭터 투명도 100%
   ctx.translate(charScreenX, charScreenY)
   ctx.scale(direction * scale, scale)
   ctx.translate(-globalMaxWidth / 2, -globalMaxHeight / 2)
   ctx.font = `${charFontSize}px "Geist Mono", monospace`
-  ctx.shadowColor = GLOW_COLOR; ctx.shadowBlur = 10; ctx.fillStyle = TEXT_COLOR;
-  mf.lines.forEach((line, r) => ctx.fillText(line, 0, r * charFontSize))
+  
+  // Shadow/Glow 효과 최소화하여 흐릿함 방지
+  ctx.shadowBlur = 0 
+  ctx.fillStyle = TEXT_COLOR
+  mf.lines.forEach((line, r) => {
+    ctx.fillText(line, 0, r * charFontSize)
+  })
   ctx.restore()
 
+  // 3. 바닥뉴스 (캐릭터보다 앞쪽 또는 겹침)
   allLayersConfig.forEach((config, i) => {
     if (config.type === 'floor') drawLayer(config, layersState[i])
   })
