@@ -10,14 +10,12 @@ const GLOW_COLOR = 'rgba(0, 255, 64, 0.15)'
 const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
 
 // ── New Layer Structure ──
-// Floor: 5 lines, 60pt down to 20pt, opacity 1.0 down to 0.6
-// Wall: 5 lines, 15pt, opacity 0.2, same speed
 const FLOOR_LAYERS = [
-  { fontSize: 20, speed: 1.5, opacity: 0.6 }, // Top of floor
+  { fontSize: 20, speed: 1.5, opacity: 0.6 },
   { fontSize: 30, speed: 2.5, opacity: 0.7 },
   { fontSize: 40, speed: 4.0, opacity: 0.8 },
   { fontSize: 50, speed: 6.5, opacity: 0.9 },
-  { fontSize: 60, speed: 9.5, opacity: 1.0 }, // Bottom of floor
+  { fontSize: 60, speed: 9.5, opacity: 1.0 },
 ]
 
 const WALL_LAYERS = [
@@ -28,7 +26,7 @@ const WALL_LAYERS = [
   { fontSize: 15, speed: 0.8, opacity: 0.2 },
 ]
 
-let allLayersConfig = [] // Combined with calculated Y positions
+let allLayersConfig = []
 let layersState = []
 
 // ── State ──
@@ -37,10 +35,12 @@ let lastFrameTime = 0
 let canvas, ctx
 let isWalking = false
 let direction = 1
-let newsArticles = ["뉴스를 불러오는 중입니다...", "잠시만 기다려주세요..."]
+let newsArticles = ["뉴스를 불러오는 중입니다...", "연합뉴스 실시간 속보 수신 중..."]
 
+// Character config
+let charFontSize = 10 // 1. 캐릭터 구성 텍스트 크기 10pt로 변경
 let charWidth = 0
-let lineHeight = 14
+let lineHeight = charFontSize // Line height matches font size for scaling
 let measuredFrames = []
 let globalMaxWidth = 0
 let globalMaxHeight = 0
@@ -105,11 +105,11 @@ async function loadFont() {
 }
 
 function measureAllFrames() {
-  const font = `14px "Geist Mono", monospace`
+  const font = `${charFontSize}px "Geist Mono", monospace`
   measuredFrames = frames.map(lines => {
     const text = lines.join('\n')
     const measured = prepare(text, font)
-    const laid = layout(measured, Infinity, 14)
+    const laid = layout(measured, Infinity, charFontSize)
     return { lines, text, width: laid.width, height: laid.height }
   })
 }
@@ -118,18 +118,19 @@ function computeSize() {
   const vw = window.innerWidth
   const vh = window.innerHeight
   const isMobile = vw < 600
-  ctx.font = `14px "Geist Mono", monospace`
+  
+  ctx.font = `${charFontSize}px "Geist Mono", monospace`
   charWidth = ctx.measureText('M').width
   const cols = frames[0][0].length
   const rows = frames[0].length
   globalMaxWidth = charWidth * cols
-  globalMaxHeight = 14 * rows
+  globalMaxHeight = charFontSize * rows
+  
+  // 유지하려는 화면 대비 비율 (기존 0.35 스케일 로직 유지)
   const baseScale = isMobile ? 0.45 : 0.35
   scale = (vh * baseScale * 0.5) / globalMaxHeight
   charScreenX = isMobile ? 60 : 180 
   
-  // ── Layout Calculation ──
-  // 1. Floor Layers (Bottom-anchored)
   let currentY = vh
   const floorConfig = FLOOR_LAYERS.slice().reverse().map(base => {
     const spacing = base.fontSize * 0.15
@@ -137,7 +138,6 @@ function computeSize() {
     return { ...base, y: currentY, type: 'floor' }
   }).reverse()
 
-  // 2. Wall Layers (Stacked on top of Floor)
   let wallY = floorConfig[0].y
   const wallConfig = WALL_LAYERS.slice().reverse().map(base => {
     const spacing = 10
@@ -147,7 +147,6 @@ function computeSize() {
 
   allLayersConfig = [...wallConfig, ...floorConfig]
 
-  // Position character feet at the top of the floor
   const charH = globalMaxHeight * scale
   charScreenY = floorConfig[0].y - (charH / 2) - 2
   
@@ -165,17 +164,13 @@ function drawLayer(config, state) {
   const vw = window.innerWidth
   const article = newsArticles[state.articleIndex % newsArticles.length]
   if (!article || !state.measuredChars) return
-
   ctx.font = `${config.fontSize}px "Geist Mono", monospace`
   ctx.globalAlpha = config.opacity
   ctx.fillStyle = '#ffffff'
-
   const totalW = state.measuredChars.reduce((s, c) => s + c.width, 0)
   if (totalW === 0) return
-
   let drawX = (state.scrollX % totalW)
   if (drawX > 0) drawX -= totalW
-
   while (drawX < vw) {
     for (let cInfo of state.measuredChars) {
       if (drawX >= vw) break
@@ -190,31 +185,26 @@ function renderFrame(idx) {
   if (!mf) return
   const dpr = window.devicePixelRatio || 1
   ctx.clearRect(0, 0, canvas.width, canvas.height)
-  
   ctx.save()
   ctx.scale(dpr, dpr)
   ctx.textBaseline = 'top'
 
-  // 1. Render Background (Wall News)
   allLayersConfig.forEach((config, i) => {
     if (config.type === 'wall') drawLayer(config, layersState[i])
   })
 
-  // 2. Render Character
   ctx.save()
   ctx.translate(charScreenX, charScreenY)
   ctx.scale(direction * scale, scale)
   ctx.translate(-globalMaxWidth / 2, -globalMaxHeight / 2)
-  ctx.font = `14px "Geist Mono", monospace`
+  ctx.font = `${charFontSize}px "Geist Mono", monospace` // 10pt 반영
   ctx.shadowColor = GLOW_COLOR; ctx.shadowBlur = 10; ctx.fillStyle = TEXT_COLOR;
-  mf.lines.forEach((line, r) => ctx.fillText(line, 0, r * 14))
+  mf.lines.forEach((line, r) => ctx.fillText(line, 0, r * charFontSize))
   ctx.restore()
 
-  // 3. Render Foreground (Floor News)
   allLayersConfig.forEach((config, i) => {
     if (config.type === 'floor') drawLayer(config, layersState[i])
   })
-
   ctx.restore()
 }
 
@@ -228,15 +218,12 @@ function animate(timestamp) {
         layersState[i].scrollX -= direction * config.speed
       })
       currentFrame = (currentFrame + 1) % TOTAL_FRAMES
-    } else {
-      currentFrame = 0
-    }
+    } else { currentFrame = 0 }
     renderFrame(currentFrame)
   }
   requestAnimationFrame(animate)
 }
 
-// ── Input ──
 const activeInputs = new Set()
 function updateWalkingState() { isWalking = activeInputs.size > 0 }
 window.addEventListener('keydown', e => {
