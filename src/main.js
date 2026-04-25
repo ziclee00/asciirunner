@@ -9,7 +9,6 @@ const TEXT_COLOR = '#00ff40'
 const GLOW_COLOR = 'rgba(0, 255, 64, 0.15)'
 const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
 
-// ── New Layer Structure ──
 const FLOOR_LAYERS = [
   { fontSize: 20, speed: 1.5, opacity: 0.6 },
   { fontSize: 30, speed: 2.5, opacity: 0.7 },
@@ -38,13 +37,13 @@ let direction = 1
 let newsArticles = ["뉴스를 불러오는 중입니다...", "연합뉴스 실시간 속보 수신 중..."]
 
 // Character config
-let charFontSize = 10 // 1. 캐릭터 구성 텍스트 크기 10pt로 변경
+let charFontSize = 14 // 14pt (피그마 디자인 초기 사이즈로 복구)
 let charWidth = 0
-let lineHeight = charFontSize // Line height matches font size for scaling
+let lineHeight = charFontSize
 let measuredFrames = []
 let globalMaxWidth = 0
 let globalMaxHeight = 0
-let scale = 1
+let scale = 1 // 1:1 비율로 렌더링
 let charScreenX = 180 
 let charScreenY = 0
 
@@ -126,9 +125,8 @@ function computeSize() {
   globalMaxWidth = charWidth * cols
   globalMaxHeight = charFontSize * rows
   
-  // 유지하려는 화면 대비 비율 (기존 0.35 스케일 로직 유지)
-  const baseScale = isMobile ? 0.45 : 0.35
-  scale = (vh * baseScale * 0.5) / globalMaxHeight
+  // 1. 캐릭터 사이즈 복구: 14pt 폰트 그대로 1:1 출력
+  scale = 1.0 
   charScreenX = isMobile ? 60 : 180 
   
   let currentY = vh
@@ -197,7 +195,7 @@ function renderFrame(idx) {
   ctx.translate(charScreenX, charScreenY)
   ctx.scale(direction * scale, scale)
   ctx.translate(-globalMaxWidth / 2, -globalMaxHeight / 2)
-  ctx.font = `${charFontSize}px "Geist Mono", monospace` // 10pt 반영
+  ctx.font = `${charFontSize}px "Geist Mono", monospace`
   ctx.shadowColor = GLOW_COLOR; ctx.shadowBlur = 10; ctx.fillStyle = TEXT_COLOR;
   mf.lines.forEach((line, r) => ctx.fillText(line, 0, r * charFontSize))
   ctx.restore()
