@@ -7,7 +7,7 @@ const TOTAL_FRAMES = frames.length
 const FPS = 30
 const TEXT_COLOR = '#00ff40'
 const GLOW_COLOR = 'rgba(0, 255, 64, 0.05)' 
-const NEWS_RSS_URL = 'https://www.yna.co.kr/rss/news.xml'
+const NEWS_RSS_URL = 'http://feeds.bbci.co.uk/news/world/rss.xml'
 
 // ── New Layer Structure ──
 const FLOOR_LAYERS = [
@@ -71,7 +71,7 @@ async function fetchNews() {
       items.forEach(item => {
         const title = item.querySelector('title')?.textContent || ""
         const description = item.querySelector('description')?.textContent || ""
-        const article = `[속보] ${title} : ${description} `.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim()
+        const article = `[BREAKING NEWS] ${title} : ${description} `.replace(/<[^>]*>?/gm, '').replace(/\s+/g, ' ').trim()
         if (article) fetched.push(article)
       })
       if (fetched.length > 0) {
